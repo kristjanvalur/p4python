@@ -61,7 +61,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 using namespace std;
 
 PythonClientProgress::PythonClientProgress(PythonClientUser *clientUser, PyObject * prog, int type)
-    :	ui(clientUser), progress(prog)
+    :	ui(clientUser), progress(prog), got_exception(false)
 {
     EnsurePythonLock guard;
 
@@ -70,7 +70,9 @@ PythonClientProgress::PythonClientProgress(PythonClientUser *clientUser, PyObjec
 	Py_DECREF( res );
     }
     else {
-        ui->SetPendingCurrentException();
+	got_exception = true;
+	ui->SetPendingCurrentException();
+	ui->SetAlive(false);
     }
 }
 
@@ -84,12 +86,18 @@ void PythonClientProgress::Description( const StrPtr *desc, int units )
 {
     EnsurePythonLock guard;
 
+    if ( got_exception ) {
+	return;
+    }
+
     PyObject * res = PyObject_CallMethod( this->progress , (char*) "setDescription", (char*)"si", desc->Text(), units );
     if( res ) {
         Py_DECREF( res );
     }
     else {
-        ui->SetPendingCurrentException();
+	got_exception = true;
+	ui->SetPendingCurrentException();
+	ui->SetAlive(false);
     }
 }
 
@@ -97,12 +105,18 @@ void PythonClientProgress::Total( long total )
 {
     EnsurePythonLock guard;
 
-    PyObject * res = PyObject_CallMethod( this->progress , (char*) "setTotal", (char*)"i", total );
+    if ( got_exception ) {
+	return;
+    }
+
+    PyObject * res = PyObject_CallMethod( this->progress , (char*) "setTotal", (char*)"l", total );
     if( res ) {
         Py_DECREF( res );
     }
     else {
-        ui->SetPendingCurrentException();
+	got_exception = true;
+	ui->SetPendingCurrentException();
+	ui->SetAlive(false);
     }
 
 }
@@ -111,10 +125,17 @@ int PythonClientProgress::Update( long pos )
 {
     EnsurePythonLock guard;
 
+    if ( got_exception ) {
+        return 1;
+    }
+
     PyObject * result = PyObject_CallMethod( this->progress , (char*) "update", (char*)"l", pos );
     if( result == NULL ) { // exception thrown
-        ui->SetPendingCurrentException();
-        return 1;
+	got_exception = true;
+	ui->SetPendingCurrentException();
+	ui->SetAlive(false);
+	// Returning 1 here does not stop the operation by itself.
+	return 1;
     }
     else {
         Py_DECREF( result );
@@ -132,7 +153,9 @@ void PythonClientProgress::Done( int fail )
 	Py_DECREF( res );
     }
     else {
-        ui->SetPendingCurrentException();
+	ui->SetPendingCurrentException();
+	ui->SetAlive(false);
     }
-}
 
+    got_exception = false;
+}
